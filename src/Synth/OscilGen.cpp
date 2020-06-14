@@ -486,8 +486,14 @@ void OscilGen::convert2sine()
 
 zyn::WaveTable *zyn::OscilGen::calculateWaveTable() const
 {
-    WaveTable* wt = new WaveTable();
+    WaveTable* wt = new WaveTable(synth.oscilsize);
     /* TODO: generate wave table here... */
+    Tensor1<WaveTable::float32>
+            freqs(Shape1{WaveTable::num_freqs}),
+            semantics(Shape1{WaveTable::num_semantics});
+    Tensor3<WaveTable::float32> data(
+            Shape3{WaveTable::num_semantics, WaveTable::num_freqs, static_cast<int>(synth.oscilsize)});
+    wt->insert(data, freqs, semantics, true);
     return wt;
 }
 

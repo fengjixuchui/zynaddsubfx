@@ -31,15 +31,23 @@ const Tensor1<WaveTable::float32> &WaveTable::get(WaveTable::float32 freq) const
     return freqs;
 }
 
-void WaveTable::insert(Tensor3<float> data,
-                       Tensor1<WaveTable::float32> freqs,
-                       Tensor1<WaveTable::float32> semantics,
+void WaveTable::insert(Tensor3<float> &data,
+                       Tensor1<float32> &freqs,
+                       Tensor1<float32> &semantics,
                        bool invalidate)
 {
-    (void)data;
-    (void)freqs;
-    (void)semantics;
-    (void)invalidate;
+    pointer_swap(this->data, data);
+    pointer_swap(this->freqs, freqs);
+    pointer_swap(this->semantics, semantics);
+    (void)invalidate; // future enhancement
+}
+
+WaveTable::WaveTable(std::size_t buffersize) :
+    semantics(Shape1{num_semantics}),
+    freqs(Shape1{num_freqs}),
+    data(Shape3{num_semantics, num_freqs, static_cast<int>(buffersize)})
+{
+
 }
 
 }
