@@ -31,6 +31,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cassert>
+#include <ctime>
 
 #include <rtosc/ports.h>
 #include <rtosc/port-sugar.h>
@@ -165,8 +166,25 @@ static const Ports partPorts = {
 
             //d.broadcast("/damage", "s", part_loc);
         }},
-
-
+        {"savexml:", rProp(internal) rDoc("Save Part to the file it has been loaded from"), 0,
+        [](const char *, RtData &d)
+        {
+            Part *p = (Part*)d.obj;
+            if (p->loaded_file[0] == '\0') {  // if part was never loaded or saved
+                time_t rawtime;     // make a new name from date and time
+                char filename[32];
+                time (&rawtime);
+                const struct tm* timeinfo = localtime (&rawtime);
+                strftime (filename,23,"%F_%R.xiz",timeinfo); 
+                p->saveXML(filename);
+                fprintf(stderr, "Part %d saved to %s\n", (p->partno + 1), filename);
+            }
+            else
+            {
+                p->saveXML(p->loaded_file);
+                fprintf(stderr, "Part %d saved to %s\n", (p->partno + 1), p->loaded_file);
+            }
+        }},
     //{"kit#16::T:F", "::Enables or disables kit item", 0,
     //    [](const char *m, RtData &d) {
     //        auto loc = d.loc;
@@ -257,6 +275,8 @@ Part::Part(Allocator &alloc, const SYNTH_T &synth_, const AbsTime &time_,
     gzip_compression(gzip_compression),
     interpolation(interpolation)
 {
+    loaded_file[0] = '\0';
+
     if(prefix_)
         fast_strcpy(prefix, prefix_, sizeof(prefix));
     else
@@ -1089,6 +1109,13 @@ int Part::loadXMLinstrument(const char *filename)
 
     if(xml.enterbranch("INSTRUMENT") == 0)
         return -10;
+
+    // store filename in member variable
+    int length = sizeof(loaded_file)-1;
+    strncpy(loaded_file, filename, length);
+    // set last element to \0 in case filname is too long or not terminated
+    loaded_file[length]='\0';
+
     getfromXMLinstrument(xml);
     xml.exitbranch();
 

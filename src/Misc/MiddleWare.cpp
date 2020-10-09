@@ -31,6 +31,7 @@
 #include "../UI/Fl_Osc_Interface.h"
 
 #include <map>
+#include <queue>
 
 #include "Util.h"
 #include "CallbackRepeater.h"
@@ -219,6 +220,48 @@ void preparePadSynth(string path, PADnoteParameters *p, rtosc::RtData &d)
     }
 }
 
+/*
+ * Build/parse messages from/to part/kit/voice IDs
+ */
+static std::string buildVoiceParMsg(int part, int kit, int voice)
+{
+    return std::string("/part") + std::to_string(part)
+           + std::string("/kit") + std::to_string(kit)
+           + std::string("/adpars/VoicePar") + std::to_string(voice);
+}
+
+static void idsFromMsg(const char* msg, int* part, int* kit, int* voice)
+{
+    auto must_match = [](const char* msg, const char* match) {
+        assert(!strncmp(msg, match, strlen(match)));
+    };
+
+    const char *end = msg;
+    char *newend;
+
+    if(*end == '/')
+        ++end;
+
+    must_match(end, "part");
+    end += 4;
+    *part = static_cast<int>(strtol(end, &newend, 10));
+    assert(newend != end);
+    end = newend;
+
+    must_match(end, "/kit");
+    end += 4;
+    *kit = static_cast<int>(strtol(end, &newend, 10));
+    assert(newend != end);
+    end = newend;
+
+    if(!strncmp(end, "/adpars/V", 9) && voice)
+    {
+        must_match(end, "/adpars/VoicePar");
+        end += 16;
+        *voice = static_cast<int>(strtol(end, &newend, 10));
+    }
+}
+
 /******************************************************************************
  *                      Non-RealTime Object Store                             *
  *                                                                            *
@@ -260,8 +303,8 @@ struct NonRtObjStore
             std::string nbase = base+"adpars/VoicePar"+to_s(k)+"/";
             if(adpars) {
                 auto &nobj = adpars->VoicePar[k];
-                objmap[nbase+"OscilSmp/"]     = nobj.OscilSmp;
-                objmap[nbase+"FMSmp/"] = nobj.FMSmp;
+                objmap[nbase+"OscilSmp/"] = nobj.OscilGn;
+                objmap[nbase+"FMSmp/"]    = nobj.FmGn;
             } else {
                 objmap[nbase+"OscilSmp/"] = nullptr;
                 objmap[nbase+"FMSmp/"]    = nullptr;
@@ -428,6 +471,9 @@ public:
 
 class MiddleWareImpl
 {
+    // messages chained with MwDataObj::chain
+    // must yet be handled after a previous handleMsg
+    std::queue<std::vector<char>> msgsToHandle;
 public:
     MiddleWare *parent;
     Config* const config;
@@ -714,6 +760,12 @@ public:
     // Handle an event with special cases
     void handleMsg(const char *msg);
 
+    // Add a message for handleMsg to a queue
+    void queueMsg(const char* msg)
+    {
+        msgsToHandle.emplace(msg, msg+rtosc_message_length(msg, -1));
+    }
+
     void write(const char *path, const char *args, ...);
     void write(const char *path, const char *args, va_list va);
 
@@ -868,7 +920,7 @@ class MwDataObj:public rtosc::RtData
         {
             assert(msg);
             // printf("chain call on <%s>\n", msg);
-            mwi->handleMsg(msg);
+            mwi->queueMsg(msg);
         }
 
         virtual void chain(const char *path, const char *args, ...) override
@@ -1000,6 +1052,7 @@ const rtosc::Ports bankPorts = {
                 d.reply("/bankview", "iss", i, "", "");
             }
         }
+        d.broadcast("/damage", "s", "/bank/");
         rEnd},
     {"bank_list:", 0, 0,
         rBegin;
@@ -1229,6 +1282,27 @@ void save_cb(const char *msg, RtData &d)
                 file.c_str(), request_time);
 }
 
+#if defined(__GNUC__) && !defined(__clang__) && !defined(__INTEL_COMPILER)
+#pragma GCC push_options
+#pragma GCC optimize("O0")
+#endif
+
+void gcc_10_1_0_is_dumb(const std::vector<std::string> &files,
+        const int N,
+        char *types,
+        rtosc_arg_t *args)
+{
+        types[N] = 0;
+        for(int i=0; i<N; ++i) {
+            args[i].s = files[i].c_str();
+            types[i]  = 's';
+        }
+}
+
+#if defined(__GNUC__) && !defined(__clang__) && !defined(__INTEL_COMPILER)
+#pragma GCC pop_options
+#endif
+
 /*
  * BASE/part#/kititem#
  * BASE/part#/kit#/adpars/voice#/oscil/\*
@@ -1273,6 +1347,7 @@ static rtosc::Ports middwareSnoopPorts = {
                     "Failed To Save To Bank Slot, please check file permissions");
             GUI::raiseUi(impl.ui, buffer);
         }
+        else d.broadcast("/damage", "s", "/bank/search_results/");
         rEnd},
     {"config/", 0, &Config::ports,
         rBegin;
@@ -1373,11 +1448,7 @@ static rtosc::Ports middwareSnoopPorts = {
         const int N = files.size();
         rtosc_arg_t *args  = new rtosc_arg_t[N];
         char        *types = new char[N+1];
-        types[N] = 0;
-        for(int i=0; i<N; ++i) {
-            args[i].s = files[i].c_str();
-            types[i]  = 's';
-        }
+        gcc_10_1_0_is_dumb(files, N, types, args);
 
         d.replyArray(d.loc, types, args);
         delete [] types;
@@ -1392,11 +1463,7 @@ static rtosc::Ports middwareSnoopPorts = {
         const int N = files.size();
         rtosc_arg_t *args  = new rtosc_arg_t[N];
         char        *types = new char[N+1];
-        types[N] = 0;
-        for(int i=0; i<N; ++i) {
-            args[i].s = files[i].c_str();
-            types[i]  = 's';
-        }
+        gcc_10_1_0_is_dumb(files, N, types, args);
 
         d.replyArray(d.loc, types, args);
         delete [] types;
@@ -1984,20 +2051,8 @@ void MiddleWareImpl::kitEnable(const char *msg)
     else
         return;
 
-    const char *tmp = strstr(msg, "part");
-
-    if(tmp == NULL)
-        return;
-
-    const int part = atoi(tmp+4);
-
-    tmp = strstr(msg, "kit");
-
-    if(tmp == NULL)
-        return;
-
-    const int kit = atoi(tmp+3);
-
+    int part, kit;
+    idsFromMsg(msg, &part, &kit, nullptr);
     kitEnable(part, kit, type);
 }
 
@@ -2066,6 +2121,14 @@ void MiddleWareImpl::handleMsg(const char *msg)
         uToB->raw_write(msg);
     } else {
         //printf("Message Handled<%s:%s>...\n", msg, rtosc_argument_string(msg));
+    }
+
+    // now handle all chained messages
+    while(!msgsToHandle.empty())
+    {
+        std::vector<char> front = msgsToHandle.front();
+        msgsToHandle.pop();
+        handleMsg(front.data());
     }
 }
 

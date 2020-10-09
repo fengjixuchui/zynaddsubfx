@@ -10,11 +10,12 @@ include(CheckCXXCompilerFlag)
 if(NOT (${CMAKE_SYSTEM_NAME} STREQUAL "Windows"))
     find_package(PkgConfig)
 endif()
-find_package(zlib REQUIRED)
+find_package(ZLIB REQUIRED)
 find_package(X11)
 find_package(Threads   REQUIRED)
 find_package(OSS)
 find_package(Alsa)
+find_package(Sndio)
 find_package(FLTK)
 find_package(OpenGL) #for FLTK
 find_package(CxxTest)
@@ -32,8 +33,6 @@ if(PKG_CONFIG_FOUND AND NOT (${CMAKE_SYSTEM_NAME} STREQUAL "Windows"))
 
     pkg_check_modules(FFTW REQUIRED fftw3)
     pkg_check_modules(MXML REQUIRED mxml)
-
-    pkg_check_modules(PORTAUDIO portaudio-2.0>=19)
 
     pkg_search_module(LASH lash-1.0)
     mark_as_advanced(LASH_LIBRARIES)
@@ -59,6 +58,9 @@ CHECK_CXX_SOURCE_COMPILES(
 
 check_cxx_compiler_flag("-msse2" SUPPORT_SSE)
 check_cxx_compiler_flag("-mfpu=neon -Werror" SUPPORT_NEON)
+check_include_file_cxx(complex HAVE_CPP_STD_COMPLEX)
+
+find_library(HAVE_LIBRT rt)
 
 set(CMAKE_REQUIRED_FLAGS "")
 
@@ -87,6 +89,8 @@ SET (OssEnable ${OSS_FOUND} CACHE BOOL
     "Enable support for Open Sound System")
 SET (PaEnable ${PORTAUDIO_FOUND} CACHE BOOL
     "Enable support for Port Audio System")
+SET (SndioEnable ${SNDIO_FOUND} CACHE BOOL
+    "Enable support for Sndio System")
 SET (LashEnable ${LASH_FOUND} CACHE BOOL
     "Enable LASH Audio Session Handler")
 SET (DssiEnable ${DSSI_FOUND} CACHE BOOL
@@ -108,7 +112,7 @@ if(${CMAKE_SYSTEM_NAME} STREQUAL "Windows")
   add_definitions(-static)
 endif()
 
-if(NOT "Darwin" STREQUAL ${CMAKE_SYSTEM_NAME})
+if(HAVE_SCHEDULER AND (NOT "Darwin" STREQUAL ${CMAKE_SYSTEM_NAME}))
     # Add scheduler function existence info (OSX compatibility)
     add_definitions(-DHAVE_SCHEDULER=${HAVE_SCHEDULER})
 endif()
@@ -117,6 +121,10 @@ if(HAVE_ASYNC)
     add_definitions(-DHAVE_ASYNC=1)
 else()
     add_definitions(-DHAVE_ASYNC=0)
+endif()
+
+if(HAVE_CPP_STD_COMPLEX)
+    add_definitions(-DHAVE_CPP_STD_COMPLEX=1)
 endif()
 
 if(DemoMode)
@@ -154,6 +162,11 @@ elseif (PaEnable)
         "Default Output module: [null, alsa, oss, jack, portaudio]")
     SET (DefaultInput null CACHE STRING
         "Default Input module: [null, alsa, oss, jack]")
+elseif (SndioEnable)
+    SET (DefaultOutput sndio CACHE STRING
+        "Default Output module: [null, alsa, oss, jack, portaudio, sndio]")
+    SET (DefaultInput sndio CACHE STRING
+        "Default Input module: [null, alsa, oss, jack, sndio]")
 else()
     SET (DefaultOutput null CACHE STRING
         "Default Output module: [null, alsa, oss, jack, portaudio]")
@@ -300,6 +313,12 @@ if(OssEnable)
 	add_definitions(-DOSS=1)
 endif(OssEnable)
 
+if(SndioEnable)
+	list(APPEND AUDIO_LIBRARIES ${SNDIO_LIBRARY})
+	list(APPEND AUDIO_LIBRARY_DIRS ${SNDIO_LIBRARY_DIRS})
+	add_definitions(-DSNDIO=1)
+endif(SndioEnable)
+
 if (CompileTests)
 	ENABLE_TESTING()
 endif()
@@ -322,8 +341,16 @@ message(STATUS "Compiling with liblo")
 include_directories(${ZLIB_INCLUDE_DIRS} ${MXML_INCLUDE_DIRS})
 include_directories(${CMAKE_BINARY_DIR}/src) # for zyn-version.h ...
 
+if(NOT ${X11_X11_LIB} STREQUAL "")
+    get_filename_component(X11_LIBRARY_DIRS ${X11_X11_LIB} DIRECTORY)
+endif()
+
 if(${CMAKE_SYSTEM_NAME} STREQUAL "Windows")
     add_definitions(-DWIN32)
+endif()
+
+if(${CMAKE_SYSTEM_NAME} STREQUAL "CYGWIN")
+    add_definitions(-D_GNU_SOURCE=1 -D_POSIX_THREAD_PRIO_INHERIT=1)
 endif()
 
 add_definitions(
@@ -489,7 +516,7 @@ configure_file(${CMAKE_CURRENT_SOURCE_DIR}/zyn-version.h.in
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/zyn-config.h.in
     ${CMAKE_CURRENT_BINARY_DIR}/zyn-config.h)
 
-link_directories(${AUDIO_LIBRARY_DIRS} ${ZLIB_LIBRARY_DIRS} ${FFTW_LIBRARY_DIRS} ${MXML_LIBRARY_DIRS} ${FLTK_LIBRARY_DIRS} ${NTK_LIBRARY_DIRS})
+link_directories(${AUDIO_LIBRARY_DIRS} ${ZLIB_LIBRARY_DIRS} ${FFTW_LIBRARY_DIRS} ${MXML_LIBRARY_DIRS} ${FLTK_LIBRARY_DIRS} ${NTK_LIBRARY_DIRS} ${X11_LIBRARY_DIRS})
 
 include_directories(
 	${CMAKE_CURRENT_SOURCE_DIR}
@@ -538,7 +565,9 @@ if(${CMAKE_SYSTEM_NAME} STREQUAL "Windows")
 elseif(APPLE)
     set(PTHREAD_LIBRARY pthread)
 else()
-    set(PLATFORM_LIBRARIES rt)
+    if(HAVE_LIBRT)
+        set(PLATFORM_LIBRARIES rt)
+    endif()
     set(PTHREAD_LIBRARY pthread)
 endif()
 
@@ -640,11 +669,11 @@ package_status(X11_FOUND        "x11      " "found"   ${Yellow})
 package_status(X11_Xpm_FOUND    "xpm      " "found"   ${Yellow})
 package_status(FLTK_FOUND       "fltk     " "found"   ${Yellow})
 package_status(NTK_FOUND        "ntk      " "found"   ${Yellow})
-package_status(X11_FOUND        "x11      " "found"   ${Yellow})
 package_status(OSS_FOUND        "OSS      " "found"   ${Yellow})
 package_status(ALSA_FOUND       "ALSA     " "found"   ${Yellow})
 package_status(JACK_FOUND       "JACK     " "found"   ${Yellow})
 package_status(PORTAUDIO_FOUND  "PA       " "found"   ${Yellow})
+package_status(SNDIO_FOUND      "SNDIO    " "found"   ${Yellow})
 package_status(LASH_FOUND       "Lash     " "found"   ${Yellow})
 package_status(DSSI_FOUND       "DSSI     " "found"   ${Yellow})
 package_status(CXXTEST_FOUND    "CxxTest  " "found"   ${Yellow})
@@ -655,6 +684,7 @@ package_status(AlsaEnable       "ALSA     " "enabled" ${Yellow})
 package_status(JackEnable       "JACK     " "enabled" ${Yellow})
 package_status(OssEnable        "OSS      " "enabled" ${Yellow})
 package_status(PaEnable         "PA       " "enabled" ${Yellow})
+package_status(SndioEnable      "SNDIO    " "enabled" ${Yellow})
 #TODO GUI MODULE
 package_status(HAVE_ASYNC       "c++ async" "usable"  ${Yellow})
 
