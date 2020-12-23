@@ -75,17 +75,8 @@ class Master
          * @return 0 for ok or -1 if there is an error*/
         int loadXML(const char *filename);
 
-        /**Save all settings to an OSC file (as specified by RT OSC)
-         * When the function returned, the OSC file has been either saved or
-         * an error occurred.
-         * @param filename File to save to or NULL (useful for testing)
-         * @param dispatcher Message dispatcher and modifier
-         * @param master2 An empty master dummy where the savefile will be
-         *                loaded to and compared with the current master
-         * @return 0 for ok or <0 if there is an error*/
-        int saveOSC(const char *filename,
-                    class master_dispatcher_t* dispatcher,
-                    Master* master2);
+        /**Append all settings to an OSC savefile (as specified by RT OSC)*/
+        std::string saveOSC(std::string savefile);
         /**loads all settings from an OSC file (as specified by RT OSC)
          * @param dispatcher Message dispatcher and modifier
          * @return 0 for ok or <0 if there is an error*/
@@ -125,6 +116,8 @@ class Master
         void vuUpdate(const float *outl, const float *outr);
 
         //Process a set of OSC events in the bToU buffer
+        //This may be called by MiddleWare if we are offline
+        //(in this case, the param offline is true)
         bool runOSC(float *outl, float *outr, bool offline=false,
                     Master* master_from_mw = nullptr);
 
@@ -226,6 +219,13 @@ class Master
         constexpr static std::size_t dnd_buffer_size = 1024;
         char dnd_buffer[dnd_buffer_size] = {0};
 
+        //Return XML data as string. Must be freed.
+        char* getXMLData();
+        //Load OSC from OSC savefile
+        //Returns 0 if OK, <0 in case of failure
+        int loadOSCFromStr(const char *file_content,
+                           rtosc::savefile_dispatcher_t* dispatcher);
+
     private:
         std::atomic<bool> run_osc_in_use = { false };
 
@@ -243,13 +243,10 @@ class Master
         void(*mastercb)(void*,Master*);
         void* mastercb_ptr;
 
-        //Return XML data as string. Must be freed.
-        char* getXMLData();
-        //Used by loadOSC and saveOSC
-        int loadOSCFromStr(const char *file_content,
-                           rtosc::savefile_dispatcher_t* dispatcher);
-        //!applyOscEvent with a DataObj parameter
-        //!@return false iff master has been changed
+        //! apply an OSC event with a DataObj parameter
+        //! @note This may be called by MiddleWare if we are offline
+        //!   (in this case, the param offline is true)
+        //! @return false iff master has been changed
         bool applyOscEvent(const char *event, float *outl, float *outr,
                            bool offline, bool nio,
                            class DataObj& d, int msg_id = -1,

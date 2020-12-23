@@ -34,13 +34,13 @@ class EnvelopeParams:public Presets
         EnvelopeParams(unsigned char Penvstretch_=64,
                        unsigned char Pforcedrelease_=0,
                        const AbsTime *time_ = nullptr);
-        ~EnvelopeParams();
+        ~EnvelopeParams() override;
         void paste(const EnvelopeParams &ep);
 
         void init(consumer_location_t loc);
         void converttofree();
 
-        void add2XML(XMLwrapper& xml);
+        void add2XML(XMLwrapper& xml) override;
         void defaults();
         void getfromXML(XMLwrapper& xml);
 
@@ -57,7 +57,8 @@ class EnvelopeParams:public Presets
         unsigned char Penvval[MAX_ENVELOPE_POINTS];
         unsigned char Penvstretch; //64=normal stretch (piano-like), 0=no stretch
         unsigned char Pforcedrelease; //0 - OFF, 1 - ON
-        unsigned char Plinearenvelope; //if the amplitude envelope is linear
+        unsigned char Plinearenvelope; //1 for linear AMP ENV, 0 otherwise
+        unsigned char Prepeating; //0 - OFF, 1 - ON
 
         float A_dt, D_dt, R_dt;
         unsigned char PA_val, PD_val, PS_val, PR_val;
@@ -100,6 +101,7 @@ class EnvelopeParams:public Presets
         unsigned char Denvstretch;
         unsigned char Dforcedrelease;
         unsigned char Dlinearenvelope;
+        unsigned char Drepeating;
         float DA_dt, DD_dt, DR_dt;
         unsigned char DA_val, DD_val, DS_val, DR_val;
 };

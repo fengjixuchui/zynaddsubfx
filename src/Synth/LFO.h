@@ -50,7 +50,7 @@ class LFO
         // RND mode
         int first_half;
         float last_random;
-        float z1, z2, noisy_out;
+        float z1, z2;
 
         //Intensity of the wave
         float lfointensity;
@@ -77,6 +77,8 @@ class LFO
         float a2 = 0.0007508914611009499;
         float b1 = -1.519121359805288;
         float b2 =  0.5221249256496917;
+        
+        char cutoff = 127;
 
         VecWatchPoint watchOut;
 

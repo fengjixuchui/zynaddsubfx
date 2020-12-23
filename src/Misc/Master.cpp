@@ -68,15 +68,15 @@ static const Ports sysefxPort =
             assert(isdigit(*index_1));
             if(isdigit(index_1[-1]))
                 index_1--;
-            int ind1 = atoi(index_1);
+            int ind1 = atoi(index_1); //efx
 
             //Now get the second index like normal
             while(!isdigit(*m)) m++;
-            int ind2 = atoi(m);
+            int ind2 = atoi(m); //part
             Master &mast = *(Master*)d.obj;
 
             if(rtosc_narguments(m)) {
-                mast.setPsysefxvol(ind2, ind1, rtosc_argument(m,0).i);
+                mast.setPsysefxvol(ind2, ind1, rtosc_argument(m,0).i /*vol*/);
                 d.broadcast(d.loc, "i", mast.Psysefxvol[ind1][ind2]);
             } else
                 d.reply(d.loc, "i", mast.Psysefxvol[ind1][ind2]);
@@ -388,6 +388,7 @@ static const Ports master_ports = {
     rRecursp(part, 16, "Part"),//NUM_MIDI_PARTS
     rRecursp(sysefx, 4, "System Effect"),//NUM_SYS_EFX
     rRecursp(insefx, 8, "Insertion Effect"),//NUM_INS_EFX
+    rRecur(HDDRecorder, "HDD recorder"),
     rRecur(microtonal, "Microtonal Mapping Functionality"),
     rRecur(ctl, "Controller"),
     rArrayOption(Pinsparts, NUM_INS_EFX, rOpt(-2, Master), rOpt(-1, Off),
@@ -569,18 +570,6 @@ static const Ports master_ports = {
         SNIP
             preset_ports.dispatch(msg, data);
         rBOIL_END},
-    {"HDDRecorder/preparefile:s", rDoc("Init WAV file"), 0, [](const char *msg, RtData &d) {
-       Master *m = (Master*)d.obj;
-       m->HDDRecorder.preparefile(rtosc_argument(msg, 0).s, 1);}},
-    {"HDDRecorder/start:", rDoc("Start recording"), 0, [](const char *, RtData &d) {
-       Master *m = (Master*)d.obj;
-       m->HDDRecorder.start();}},
-    {"HDDRecorder/stop:", rDoc("Stop recording"), 0, [](const char *, RtData &d) {
-       Master *m = (Master*)d.obj;
-       m->HDDRecorder.stop();}},
-    {"HDDRecorder/pause:", rDoc("Pause recording"), 0, [](const char *, RtData &d) {
-       Master *m = (Master*)d.obj;
-       m->HDDRecorder.pause();}},
     {"watch/", rDoc("Interface to grab out live synthesis state"), &watchPorts,
         rBOIL_BEGIN;
         SNIP;
@@ -876,11 +865,6 @@ bool Master::applyOscEvent(const char *msg, float *outl, float *outr,
         fprintf(stderr, "%c[%d;%d;%dm", 0x1B, 0, 7 + 30, 0 + 40);
     }
     else if(d.forwarded)
-        bToU->raw_write(msg);
-
-    if(d.matches == 0 && !d.forwarded)
-        fprintf(stderr, "Unknown path '%s:%s'\n", msg, rtosc_argument_string(msg));
-    if(d.forwarded)
         bToU->raw_write(msg);
 
     return true;
@@ -1777,88 +1761,11 @@ char* Master::getXMLData()
 
 // this is being called as a "read only op" directly by the MiddleWare thread;
 // note that the Master itself is frozen
-int Master::saveOSC(const char *filename, master_dispatcher_t* dispatcher,
-                    Master* master2)
+std::string Master::saveOSC(std::string savefile)
 {
-    std::string savefile = rtosc::save_to_file(ports, this,
-                                               "ZynAddSubFX",
-                                               version_in_rtosc_fmt());
-
-    // load the savefile string into another master to compare the results
-    // between the original and the savefile-loaded master
-    // this requires a temporary master switch
-    dispatcher->updateMaster(master2);
-
-    int rval = master2->loadOSCFromStr(savefile.c_str(), dispatcher);
-
-    // The above call is done by this thread (i.e. the MiddleWare thread), but
-    // it sends messages to master2 in order to load the values
-    // We need to wait until savefile has been loaded into master2
-    int i;
-    for(i = 0; i < 20 && master2->uToB->hasNext(); ++i)
-        os_usleep(50000);
-    if(i >= 20) // >= 1 second?
-    {
-        // Master failed to fetch its messages
-        rval = -1;
-    }
-    printf("Saved in less than %d ms.\n", 50*i);
-
-    dispatcher->updateMaster(this);
-
-    if(rval < 0)
-    {
-        std::cerr << "invalid savefile (or a backend error)!" << std::endl;
-        std::cerr << "complete savefile:" << std::endl;
-        std::cerr << savefile << std::endl;
-        std::cerr << "first entry that could not be parsed:" << std::endl;
-
-        for(int i = -rval + 1; savefile[i]; ++i)
-        if(savefile[i] == '\n')
-        {
-            savefile.resize(i);
-            break;
-        }
-        std::cerr << (savefile.c_str() - rval) << std::endl;
-
-        rval = -1;
-    }
-    else
-    {
-        char* xml = getXMLData(),
-            * xml2 = master2->getXMLData();
-
-        rval = strcmp(xml, xml2) ? -1 : 0;
-
-        if(rval == 0)
-        {
-            if(filename && *filename)
-            {
-                std::ofstream ofs(filename);
-                ofs << savefile;
-            }
-            else {
-                std::cout << "The savefile content follows" << std::endl;
-                std::cout << "---->8----" << std::endl;
-                std::cout << savefile << std::endl;
-                std::cout << "---->8----" << std::endl;
-            }
-        }
-        else
-        {
-            std::cout << savefile << std::endl;
-            std::cerr << "Can not write OSC savefile!! (see tmp1.txt and tmp2.txt)"
-                      << std::endl;
-            std::ofstream tmp1("tmp1.txt"), tmp2("tmp2.txt");
-            tmp1 << xml;
-            tmp2 << xml2;
-            rval = -1;
-        }
-
-        free(xml);
-        free(xml2);
-    }
-    return rval;
+    return rtosc::save_to_file(ports, this,
+                               nullptr, version_in_rtosc_fmt(), // both unused
+                               savefile);
 }
 
 int Master::loadOSCFromStr(const char *file_content,

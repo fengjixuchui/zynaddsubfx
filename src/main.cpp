@@ -459,7 +459,7 @@ int main(int argc, char *argv[])
                     rtosc::OscDocFormatter s;
                     ofstream outfile(optarguments);
                     s.prog_name    = "ZynAddSubFX";
-                    s.p            = &Master::ports;
+                    s.p            = &MiddleWare::getAllPorts();
                     s.uri          = "http://example.com/fake/";
                     s.doc_origin   = "http://example.com/fake/url.xml";
                     s.author_first = "Mark";
@@ -471,7 +471,7 @@ int main(int argc, char *argv[])
                 if(optarguments)
                 {
                     ofstream outfile(optarguments);
-                    dump_json(outfile, Master::ports);
+                    dump_json(outfile, MiddleWare::getAllPorts());
                 }
                 break;
             case 'Z':
@@ -663,7 +663,6 @@ int main(int argc, char *argv[])
             GUI::raiseUi(gui, "/alert-reload", "i", old_save);
         middleware->enableAutoSave(auto_save_interval);
     }
-    printf("[INFO] NSM Stuff\n");
 
     //TODO move this stuff into Cmake
 #if USE_NSM && defined(WIN32)
@@ -677,6 +676,7 @@ int main(int argc, char *argv[])
 #endif
 
 #if USE_NSM
+    printf("[INFO] NSM Stuff\n");
     char *nsm_url = getenv("NSM_URL");
 
     if(nsm_url) {
@@ -691,8 +691,8 @@ int main(int argc, char *argv[])
     }
 #endif
 
-    printf("[INFO] LASH Stuff\n");
 #if USE_NSM
+    printf("[INFO] LASH Stuff\n");
     if(!nsm)
 #endif
     {
@@ -799,7 +799,7 @@ int main(int argc, char *argv[])
 done:
 #endif
         GUI::tickUi(gui);
-#endif
+#endif // !WIN32
         middleware->tick();
 #ifdef WIN32
         Sleep(1);
@@ -817,7 +817,7 @@ done:
         }
 #endif
 #endif
-    }
+    } // while !Pexitprogram
 
     mem_locker.unlock();
 
