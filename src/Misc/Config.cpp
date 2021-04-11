@@ -139,7 +139,7 @@ static const rtosc::Ports ports = {
             d.broadcast(d.loc, "i", (int)(log(c.cfg.OscilSize*1.0)/log(2.0)));
         }},
     {"clear-favorites:", rDoc("Clear favorite directories"), 0,
-        [](const char *msg, rtosc::RtData &d) {
+        [](const char *, rtosc::RtData &d) {
             Config &c = *(Config*)d.obj;
             for(int i=0; i<MAX_BANK_ROOT_DIRS; ++i)
                 c.cfg.favoriteList[i] = "";
@@ -158,7 +158,7 @@ static const rtosc::Ports ports = {
 
         }},
     {"favorites:", /*rProp(parameter)*/ 0, 0,
-        [](const char *msg, rtosc::RtData &d)
+        [](const char *, rtosc::RtData &d)
         {
             Config &c = *(Config*)d.obj;
             char        *argt = new char[MAX_BANK_ROOT_DIRS+1];
@@ -369,7 +369,7 @@ void Config::readConfig(const char *filename)
                 cfg.presetsDirList[i] = xmlcfg.getparstr("presets_root", "");
                 xmlcfg.exitbranch();
             }
-        
+
         //Get favs
         for(int i = 0; i < MAX_BANK_ROOT_DIRS; ++i)
             if(xmlcfg.enterbranch("FAVSROOT", i)) {
@@ -437,7 +437,7 @@ void Config::saveConfig(const char *filename) const
             xmlcfg->addparstr("presets_root", cfg.presetsDirList[i]);
             xmlcfg->endbranch();
         }
-        
+
     for(int i = 0; i < MAX_BANK_ROOT_DIRS; ++i)
         if(!cfg.favoriteList[i].empty()) {
             xmlcfg->beginbranch("FAVSROOT", i);

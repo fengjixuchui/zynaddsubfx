@@ -57,8 +57,8 @@ static const Ports partPorts = {
 #undef rChangeCb
 #define rChangeCb
 #undef rChangeCb
-#define rChangeCb obj->setVolume(obj->Volume);
-    rParamF(Volume, rShort("Vol"), rDefault(0.0), rUnit(dB), 
+#define rChangeCb obj->setVolumedB(obj->Volume);
+    rParamF(Volume, rShort("Vol"), rDefault(0.0), rUnit(dB),
             rLinear(-40.0, 13.3333), "Part Volume"),
 #undef rChangeCb
     {"Pvolume::i", rShort("Vol") rProp(parameter) rLinear(0,127)
@@ -68,8 +68,8 @@ static const Ports partPorts = {
         if(rtosc_narguments(m)==0) {
             d.reply(d.loc, "i", (int) roundf(96.0f * obj->Volume / 40.0f + 96.0f));
         } else if(rtosc_narguments(m)==1 && rtosc_type(m,0)=='i') {
-            obj->Volume  = obj->volume127ToFloat(limit<unsigned char>(rtosc_argument(m, 0).i, 0, 127));
-            obj->setVolume(obj->Volume);
+            obj->Volume  = obj->volume127TodB(limit<unsigned char>(rtosc_argument(m, 0).i, 0, 127));
+            obj->setVolumedB(obj->Volume);
             d.broadcast(d.loc, "i", limit<char>(rtosc_argument(m, 0).i, 0, 127));
         }}},
 #define rChangeCb obj->setPpanning(obj->Ppanning);
@@ -154,7 +154,7 @@ static const Ports partPorts = {
         }
     },
     {"clear:", rProp(internal) rDoc("Reset Part To Defaults"), 0,
-        [](const char *, RtData &d)
+        [](const char *, RtData &)
         {
             //XXX todo forward this event for middleware to handle
             //Part *p = (Part*)d.obj;
@@ -176,7 +176,7 @@ static const Ports partPorts = {
                 char filename[32];
                 time (&rawtime);
                 const struct tm* timeinfo = localtime (&rawtime);
-                strftime (filename,23,"%F_%R.xiz",timeinfo); 
+                strftime (filename,23,"%F_%R.xiz",timeinfo);
                 p->saveXML(filename);
                 fprintf(stderr, "Part %d saved to %s\n", (p->partno + 1), filename);
             }
@@ -314,7 +314,6 @@ Part::Part(Allocator &alloc, const SYNTH_T &synth_, const AbsTime &time_,
 
     Pname = new char[PART_MAX_NAME_LEN];
 
-    oldvolumel = oldvolumer = 0.5f;
     lastnote = -1;
 
     defaults();
@@ -337,7 +336,7 @@ void Part::cloneTraits(Part &p) const
 #define CLONE(x) p.x = this->x
     CLONE(Penabled);
 
-    p.setVolume(this->Volume);
+    p.setVolumedB(this->Volume);
     p.setPpanning(this->Ppanning);
 
     CLONE(Pminkey);
@@ -353,7 +352,9 @@ void Part::cloneTraits(Part &p) const
     CLONE(Plegatomode);
     CLONE(Pkeylimit);
 
-    CLONE(ctl);
+    // Controller has a refence, so it can not be re-assigned
+    // So, destroy and reconstruct it.
+    p.ctl.~Controller(); new (&p.ctl) Controller(this->ctl);
 }
 
 void Part::defaults()
@@ -364,7 +365,7 @@ void Part::defaults()
     Pnoteon     = 1;
     Ppolymode   = 1;
     Plegatomode = 0;
-    setVolume(0.0);
+    setVolumedB(0.0);
     Pkeyshift = 64;
     Prcvchn   = 0;
     setPpanning(64);
@@ -653,7 +654,7 @@ void Part::SetController(unsigned int type, int par)
             break;
         case C_expression:
             ctl.setexpression(par);
-            setVolume(Volume); //update the volume
+            setVolumedB(Volume); //update the volume
             break;
         case C_portamento:
             ctl.setportamento(par);
@@ -680,9 +681,10 @@ void Part::SetController(unsigned int type, int par)
         case C_volume:
             ctl.setvolume(par);
             if(ctl.volume.receive != 0)
-                volume = ctl.volume.volume;
+                setVolumedB(volume127TodB( ctl.volume.volume * 127.0f ) );
             else
-                setVolume(Volume);
+                /* FIXME: why do this? */
+                setVolumedB(Volume);
             break;
         case C_sustain:
             ctl.setsustain(par);
@@ -696,10 +698,9 @@ void Part::SetController(unsigned int type, int par)
             ctl.resetall();
             ReleaseSustainedKeys();
             if(ctl.volume.receive != 0)
-                volume = ctl.volume.volume;
+                setVolumedB(volume127TodB( ctl.volume.volume * 127.0f ) );
             else
-                setVolume(Volume);
-            setVolume(Volume); //update the volume
+                setVolumedB(Volume);
             setPpanning(Ppanning); //update the panning
 
             for(int item = 0; item < NUM_KIT_ITEMS; ++item) {
@@ -937,12 +938,14 @@ void Part::ComputePartSmps()
 /*
  * Parameter control
  */
-float Part::volume127ToFloat(unsigned char volume_)
+
+float Part::volume127TodB(unsigned char volume_)
 {
+    assert( volume_  <= 127 );
     return (volume_ - 96.0f) / 96.0f * 40.0;
 }
 
-void Part::setVolume(float Volume_)
+void Part::setVolumedB(float Volume_)
 {
     //Fixes bug with invalid loading
     if(fabs(Volume_ - 50.0f) < 0.001)
@@ -950,10 +953,16 @@ void Part::setVolume(float Volume_)
 
     Volume_ = limit(Volume_, -40.0f, 13.333f);
 
-    assert(Volume_ < 40.0);
+    assert(Volume_ < 14.0);
     Volume = Volume_;
-    volume =
-        dB2rap(Volume) * ctl.expression.relvolume;
+
+    float volume = dB2rap( Volume_ );
+
+    /* printf( "Volume: %f, Expression %f\n", volume, ctl.expression.relvolume ); */
+
+    assert( volume <= dB2rap(14.0f) );
+
+    gain = volume * ctl.expression.relvolume;
 }
 
 void Part::setPpanning(char Ppanning_)
@@ -1289,9 +1298,9 @@ void Part::getfromXML(XMLwrapper& xml)
 {
     Penabled = xml.getparbool("enabled", Penabled);
     if (xml.hasparreal("volume")) {
-        setVolume(xml.getparreal("volume", Volume));
+        setVolumedB(xml.getparreal("volume", Volume));
     } else {
-        setVolume(volume127ToFloat(xml.getpar127("volume", 96)));
+        setVolumedB(volume127TodB( xml.getpar127("volume", 96)));
     }
     setPpanning(xml.getpar127("panning", Ppanning));
 

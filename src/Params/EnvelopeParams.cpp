@@ -28,7 +28,7 @@ namespace zyn {
 
 #define rObject EnvelopeParams
 #define rBegin [](const char *msg, RtData &d) { \
-    EnvelopeParams *env = (rObject*) d.obj
+    (void)* msg; EnvelopeParams *env = (rObject*) d.obj
 #define rEnd }
 
 #define dT127(var) limit( (int)roundf(log2f(var*100.0f + 1.0f) * 127.0f/12.0f), 0, 127 )
@@ -111,7 +111,7 @@ static const rtosc::Ports localPorts = {
             rPresetAtMulti(true, ad_global_amp, ad_global_filter, ad_voice_amp,
                                  ad_voice_fm_amp),
             rDefault(false),
-            "Force Envelope to fully evaluate"),    
+            "Force Envelope to fully evaluate"),
     rToggle(Plinearenvelope, rShort("lin/log"), rDefault(false),
             "Linear or Logarithmic Envelopes"),
     rToggle(Prepeating, rShort("repeat"), rDefault(false),
@@ -181,7 +181,7 @@ static const rtosc::Ports localPorts = {
         rEnd},
     {"dt", rDoc("Envelope Delay Times (sec)"), NULL,
         rBegin;
-        
+
         const int N = MAX_ENVELOPE_POINTS;
         const int M = rtosc_narguments(msg);
         if(M == 0) {

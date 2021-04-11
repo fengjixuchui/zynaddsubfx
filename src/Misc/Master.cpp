@@ -189,7 +189,7 @@ static const Ports auto_param_ports = {
             d.broadcast(d.loc, "s", a.slots[slot].automations[param].param_path);
         }
         else
-			d.reply(d.loc, "s", a.slots[slot].automations[param].param_path);
+                        d.reply(d.loc, "s", a.slots[slot].automations[param].param_path);
         rEnd},
     {"clear:", rDoc("Clear automation param"), 0,
         rBegin;
@@ -370,7 +370,7 @@ static const Ports automate_ports = {
 
 #undef  rBegin
 #undef  rEnd
-#define rBegin [](const char *msg, RtData &d) { Master *m = (Master*)d.obj
+#define rBegin [](const char *msg, RtData &d) { (void)msg; Master *m = (Master*)d.obj
 #define rEnd }
 
 static const Ports watchPorts = {
@@ -560,7 +560,7 @@ static const Ports master_ports = {
                 assert(!*obj->dnd_buffer);
                 const char* var = rtosc_argument(msg, 0).s;
                 printf("receiving /last_dnd %s\n",var);
-                strncpy(obj->dnd_buffer, var, Master::dnd_buffer_size);
+                strncpy(obj->dnd_buffer, var, Master::dnd_buffer_size-1);
             }
         rBOIL_END },
     {"config/", rNoDefaults
@@ -577,7 +577,7 @@ static const Ports master_ports = {
         rBOIL_END},
     {"bank/", rDoc("Controls for instrument banks"), &bankPorts,
             [](const char*,RtData&) {}},
-    {"learn:s", rProp(depricated) rDoc("MIDI Learn"), 0,
+    {"learn:s", rProp(deprecated) rDoc("MIDI Learn"), 0,
         rBegin;
         int free_slot = m->automate.free_slot();
         if(free_slot >= 0) {
@@ -777,11 +777,21 @@ Master::Master(const SYNTH_T &synth_, Config* config)
         fakepeakpart[npart]  = 0;
     }
 
+
     ScratchString ss;
     for(int npart = 0; npart < NUM_MIDI_PARTS; ++npart)
+    {
         part[npart] = new Part(*memory, synth, time, config->cfg.GzipCompression,
                                config->cfg.Interpolation, &microtonal, fft, &watcher,
                                (ss+"/part"+npart+"/").c_str);
+        smoothing_part_l[npart].sample_rate( synth.samplerate );
+        smoothing_part_l[npart].reset_on_next_apply( true ); /* necessary to make CI tests happy, otherwise of no practical use */
+        smoothing_part_r[npart].sample_rate( synth.samplerate );
+        smoothing_part_r[npart].reset_on_next_apply( true ); /* necessary to make CI tests happy, otherwise of no practical use */
+    }
+
+    smoothing.sample_rate( synth.samplerate );
+    smoothing.reset_on_next_apply( true ); /* necessary to make CI tests happy, otherwise of no practical use */
 
     //Insertion Effects init
     for(int nefx = 0; nefx < NUM_INS_EFX; ++nefx)
@@ -891,7 +901,6 @@ void Master::defaults()
     union {float f; uint32_t i;} convert;
     convert.i = 0xC0D55556;
     Volume = convert.f;
-    oldVolume = Volume;
     setPkeyshift(64);
 
     for(int npart = 0; npart < NUM_MIDI_PARTS; ++npart) {
@@ -1110,52 +1119,52 @@ bool Master::hasMasterCb() const
 template <class T>
 struct def_skip
 {
-	static void skip(const char*& argptr) { argptr += sizeof(T); }
+        static void skip(const char*& argptr) { argptr += sizeof(T); }
 };
 
 template <class T>
 struct str_skip
 {
-	static void skip(const char*& argptr) { while(argptr++); /*TODO: 4 padding */ }
+        static void skip(const char*& argptr) { while(argptr++); /*TODO: 4 padding */ }
 };
 
 template<class T, class Display = T, template<class TMP> class SkipsizeFunc = def_skip>
 void _dump_prim_arg(const char*& argptr, std::ostream& os)
 {
-	os << ' ' << (Display)*(const T*)argptr;
-	SkipsizeFunc<T>::skip(argptr);
+        os << ' ' << (Display)*(const T*)argptr;
+        SkipsizeFunc<T>::skip(argptr);
 }
 
 void dump_msg(const char* ptr, std::ostream& os = std::cerr)
 {
-	assert(*ptr == '/');
-	os << ptr;
+        assert(*ptr == '/');
+        os << ptr;
 
-	while(*++ptr) ; // skip address
-	while(!*++ptr) ; // skip 0s
+        while(*++ptr) ; // skip address
+        while(!*++ptr) ; // skip 0s
 
-	assert(*ptr == ',');
-	os << ' ' << (ptr + 1);
+        assert(*ptr == ',');
+        os << ' ' << (ptr + 1);
 
-	const char* argptr = ptr;
-	while(*++argptr) ; // skip type string
-	while(!*++argptr) ; // skip 0s
+        const char* argptr = ptr;
+        while(*++argptr) ; // skip type string
+        while(!*++argptr) ; // skip 0s
 
-	char c;
-	while((c = *++ptr))
-	{
-		switch(c)
-		{
-			case 'i':
-				_dump_prim_arg<int32_t>(argptr, os); break;
-			case 'c':
-				_dump_prim_arg<int32_t, char>(argptr, os); break;
-		//	case 's':
-		//		_dump_prim_arg<char, const char*>(argptr, os); break;
-			default:
-				exit(1);
-		}
-	}
+        char c;
+        while((c = *++ptr))
+        {
+                switch(c)
+                {
+                        case 'i':
+                                _dump_prim_arg<int32_t>(argptr, os); break;
+                        case 'c':
+                                _dump_prim_arg<int32_t, char>(argptr, os); break;
+                //      case 's':
+                //              _dump_prim_arg<char, const char*>(argptr, os); break;
+                        default:
+                                exit(1);
+                }
+        }
 
 }
 #endif
@@ -1252,14 +1261,14 @@ bool Master::AudioOut(float *outr, float *outl)
         }
 
 
+    float gainbuf[synth.buffersize];
+
     //Apply the part volumes and pannings (after insertion effects)
     for(int npart = 0; npart < NUM_MIDI_PARTS; ++npart) {
         if(!part[npart]->Penabled)
             continue;
 
-        Stereo<float> newvol(part[npart]->volume),
-        oldvol(part[npart]->oldvolumel,
-               part[npart]->oldvolumer);
+        Stereo<float> newvol(part[npart]->gain);
 
         float pan = part[npart]->panning;
         if(pan < 0.5f)
@@ -1269,28 +1278,31 @@ bool Master::AudioOut(float *outr, float *outl)
         //if(npart==0)
         //printf("[%d]vol = %f->%f\n", npart, oldvol.l, newvol.l);
 
-        //the volume or the panning has changed and needs interpolation
-        if(ABOVE_AMPLITUDE_THRESHOLD(oldvol.l, newvol.l)
-           || ABOVE_AMPLITUDE_THRESHOLD(oldvol.r, newvol.r)) {
-            for(int i = 0; i < synth.buffersize; ++i) {
-                Stereo<float> vol(INTERPOLATE_AMPLITUDE(oldvol.l, newvol.l,
-                                                        i, synth.buffersize),
-                                  INTERPOLATE_AMPLITUDE(oldvol.r, newvol.r,
-                                                        i, synth.buffersize));
-                part[npart]->partoutl[i] *= vol.l;
-                part[npart]->partoutr[i] *= vol.r;
-            }
-            part[npart]->oldvolumel = newvol.l;
-            part[npart]->oldvolumer = newvol.r;
+
+
+        /* This is where the part volume (and pan) smoothing and application happens */
+        if ( smoothing_part_l[npart].apply( gainbuf, synth.buffersize, newvol.l ) )
+        {
+            for ( int i = 0; i < synth.buffersize; ++i )
+                part[npart]->partoutl[i] *= gainbuf[i];
         }
-        else {
-            for(int i = 0; i < synth.buffersize; ++i) { //the volume did not changed
+        else
+        {
+            for ( int i = 0; i < synth.buffersize; ++i )
                 part[npart]->partoutl[i] *= newvol.l;
+        }
+
+        if ( smoothing_part_r[npart].apply( gainbuf, synth.buffersize, newvol.r ) )
+        {
+            for ( int i = 0; i < synth.buffersize; ++i )
+                part[npart]->partoutr[i] *= gainbuf[i];
+        }
+        else
+        {
+            for ( int i = 0; i < synth.buffersize; ++i )
                 part[npart]->partoutr[i] *= newvol.r;
-            }
         }
     }
-
 
     //System effects
     for(int nefx = 0; nefx < NUM_SYS_EFX; ++nefx) {
@@ -1354,27 +1366,26 @@ bool Master::AudioOut(float *outr, float *outl)
         if(Pinsparts[nefx] == -2)
             insefx[nefx]->out(outl, outr);
 
+    float vol = dB2rap(Volume);
 
     //Master Volume
-    float oldvol = dB2rap(oldVolume);
-    float newvol = dB2rap(Volume);
-    if(ABOVE_AMPLITUDE_THRESHOLD(oldvol, newvol)) {
-        for(int i = 0; i < synth.buffersize; ++i) {
-            float vol = INTERPOLATE_AMPLITUDE(oldvol, newvol,
-                                              i, synth.buffersize);
+    /* this is where the master volume smoothing and application happens */
+    if ( smoothing.apply( gainbuf, synth.buffersize, vol ) )
+    {
+        for ( int i = 0; i < synth.buffersize; ++i )
+        {
+            outl[i] *= gainbuf[i];
+            outr[i] *= gainbuf[i];
+        }
+    }
+    else
+    {
+        for ( int i = 0; i < synth.buffersize; ++i )
+        {
             outl[i] *= vol;
             outr[i] *= vol;
         }
     }
-    else {
-        // No interpolation
-        float vol = dB2rap(Volume);
-        for(int i = 0; i < synth.buffersize; ++i) {
-            outl[i] *= vol;
-            outr[i] *= vol;
-        }
-    }
-    oldVolume = Volume;
 
     vuUpdate(outl, outr);
 
@@ -1666,7 +1677,6 @@ void Master::getfromXML(XMLwrapper& xml)
         Volume = xml.getparreal("volume", Volume);
     } else {
         Volume  = volume127ToFloat(xml.getpar127("volume", 0));
-        oldVolume = Volume;
     }
     setPkeyshift(xml.getpar127("key_shift", Pkeyshift));
     ctl.NRPN.receive = xml.getparbool("nrpn_receive", ctl.NRPN.receive);
